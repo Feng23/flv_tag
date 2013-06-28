@@ -171,7 +171,8 @@ class FlvAudioTagHeader(Tag):
                 "SoundFormat",
                 "SoundRate",
                 "SoundSize",
-                "SoundType"
+                "SoundType",
+                "AACPacketType"
                 )
         self.length = 1
         Tag.__init__(self, f)
