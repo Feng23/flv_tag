@@ -12,7 +12,7 @@ def read_flv(fname):
         while tmp:
             print_title("PriviousTagSize")
             print FlvPriviousTagSize(f)
-            print_tag('Position', f.tell())
+            #print_tag('Position', f.tell())
 
             try:
                 flvTag = FlvTag(f)
@@ -34,6 +34,16 @@ def read_flv(fname):
                 f.read(flvTag.DataSize.value - videoTagHeader.length)
             else:   #skip scriptdata
                 f.read(flvTag.DataSize.value)
+                """
+                readlen = 0
+                postion = f.tell()
+                print_title("ScriptData")
+                while readlen < flvTag.DataSize.value:
+                    scriptData = FlvSCRIPTDATA(f)
+                    print scriptData
+                    readlen += scriptData.length
+                f.read(flvTag.DataSize.value - readlen)
+                """
 
             if flvTag.Filter.value is 1:  #EncryptionHeader, FilterParams 
                 pass

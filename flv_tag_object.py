@@ -14,13 +14,13 @@ def print_title(s):
 def print_tag(name, value):
     print "%s%s" %(name.ljust(TAG_LEFT_LENGTH), value)
 
-class UnkownUINTError(Exception):
+class UnknownUINTError(Exception):
     def __init__(self, value):
         self.value = value
     def __repr__(self):
         return "%d" %self.value
 
-class UnkownUBYTEError(UnkownUINTError):
+class UnknownUBYTEError(UnknownUINTError):
     def __init__(self, offset, bitnum):
         self.offset = offset
         self.bitnum = bitnum
@@ -30,7 +30,7 @@ class UnkownUBYTEError(UnkownUINTError):
 class UINT:
     def __init__(self, bytenum, comment = {}):
         if bytenum not in [1, 2, 3, 4]:
-            raise UnkownUINTError(bytenum)
+            raise UnknownUINTError(bytenum)
         self.bytenum = bytenum
         self.comment = comment
     def parse(self, s):
@@ -53,7 +53,7 @@ class UINT:
 class UBYTE:
     def __init__(self, offset, bitnum, comment = {}):
         if offset not in range(0, 8) or bitnum + offset not in range(1, 9):
-            raise UnkownUBYTEError(offset, bitnum)
+            raise UnknownUBYTEError(offset, bitnum)
         self.offset = 8 - offset - bitnum   #offset
         self.bitnum = bitnum
         self.mask = 1
@@ -92,7 +92,8 @@ class Tag:
                 if byte_offset is 7:
                     byte_offset = 0
             elif tmptag.__class__ is UnknownType:
-                self.determine_type()   #Determine type dynamically
+                #self.determine_type(tag)   #Determine type dynamically
+                getattr(self, "determine_%s_type" %tag)()
     def instantiate_uint(self, tag):
         tag.parse(self.f.read(tag.bytenum))
     def __str__(self):
@@ -133,6 +134,8 @@ class FlvPriviousTagSize(Tag):
     def __init__(self, f):
         self.taglist = ("PriviousTagSize",)
         Tag.__init__(self, f)
+        self.taglist += ("Position",)
+        self.Position = self.f.tell()
 
 class FlvAudioTagHeader(Tag):
     SoundFormat = UBYTE(0, 4, {
@@ -165,6 +168,7 @@ class FlvAudioTagHeader(Tag):
         0: "Mono sound",
         1: "Stereo sound" 
         })
+    SoundData = UnknownType()
     AACPacketType = UnknownType()
     def __init__(self, f):
         self.taglist = (
@@ -172,10 +176,10 @@ class FlvAudioTagHeader(Tag):
                 "SoundRate",
                 "SoundSize",
                 "SoundType",
-                "AACPacketType"
                 )
         self.length = 1
         Tag.__init__(self, f)
+    """
     def determine_type(self):
         if self.SoundFormat.value is 10:
             self.AACPacketType = UINT(1, {
@@ -184,6 +188,7 @@ class FlvAudioTagHeader(Tag):
                 })
             self.instantiate_uint(self.AACPacketType)
             self.length += 1
+    """
 
 class FlvVidioTagHeader(Tag):
     FrameType = UBYTE(0, 4, {
@@ -209,6 +214,26 @@ class FlvVidioTagHeader(Tag):
         self.length = 1
         Tag.__init__(self, f)
 
+class FlvSCRIPTDATA(Tag):
+    KEYTYPE = UINT(1)
+    KEY = UnknownType()
+    VALUE = UnknownType()
+    def __init__(self, f):
+        self.taglist = ("KEYTYPE", "KEY", "VALUE")
+        self.length = 0
+        Tag.__init__(self, f)
+    def determine_KEY_type(self):
+        if self.KEYTYPE.value == 2:
+            self.KEY = FlvSCRIPTDATASTRING(self.f)
+        elif self.KEYTYPE.value == 12:
+            pass
+        self.length += self.KEY.length
+    def determine_VALUE_type(self):
+        self.VALUE = FlvSCRIPTDATAVALUE(self.f)
+        self.length += self.VALUE.length
+    def __str__(self):
+        return "%s%s" %(str(self.KEY).ljust(TAG_LEFT_LENGTH), self.VALUE)
+
 class FlvSCRIPTDATAVALUE (Tag):
     Type = UINT(1, {
         0: "0 = Number",
@@ -228,29 +253,47 @@ class FlvSCRIPTDATAVALUE (Tag):
     ScriptDataValue = UnknownType()
     def __init__(self, f):
         self.taglist = ("Type", "ScriptDataValue")
+        self.length = 1
         Tag.__init__(self, f)
-    def determine_type(self):
+    def determine_ScriptDataValue_type(self):
+        print 'type:',self.Type.value
         if self.Type.value is 0:
             pass
         elif self.Type.value is 1:
             self.ScriptDataValue = UINT(1)
             self.instantiate_uint(self.ScriptDataValue)
+            self.length += 1
         elif self.Type.value is 2:
             self.ScriptDataValue = FlvSCRIPTDATASTRING(self.f)
+            self.length += self.ScriptDataValue.length
+        elif self.Type.value is 8:
+            self.ScriptDataValue = FlvSCRIPTDATAECMAARRAY(self.f)
+        else:
+            self.ScriptDataValue = "..."
     def __str__(self):
         return str(self.ScriptDataValue)
 
 class FlvSCRIPTDATASTRING(Tag):
-    StringLength = UINT(2)
+    StringLength = UnknownType()
     StringData = UnknownType()
     def __init__(self, f):
         self.taglist = ("StringLength", "StringData")
+        self.length = 2
         Tag.__init__(self, f)
-    def determine_type(self):
-        self.StringData = self.f.read(self.StringLength.value)
+    def determine_StringData_type(self):
+        self.StringData = self.f.read(self.StringLength)
+        self.length += self.StringLength
+    def determine_StringLength_type(self):
+        s = self.f.read(2)
+        self.StringLength = struct.unpack('>H', s)[0]
     def __str__(self):
         return self.StringData
         #return str(self.StringLength)
+
+class SCRIPTDATAVARIABLE(Tag):
+    def __init__(self, f):
+        self.taglist = ()
+        Tag.__init__(self, f)
 
 class FlvSCRIPTDATAECMAARRAY(Tag):
     ECMAArrayLength = UINT(4)
@@ -259,3 +302,5 @@ class FlvSCRIPTDATAECMAARRAY(Tag):
     def __init__(self, f):
         self.taglist = ("ECMAArrayLength", "Variables", "ListTerminator")
         Tag.__init__(self, f)
+    def __str__(self):
+        return "xx"
